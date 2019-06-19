@@ -154,11 +154,9 @@ VCF1: foreach my $isolate(keys %{$Name_Type_Location_file}) {
 }
 close $ofh3;
 
-# Convert FASTA to Nexus and Phylip
-my $fasta_to_nexus_CMD = "perl ~/perl_scripts/FASTA-parser.pl -s $Outfile_ECA_FASTA -p nexus -d dna -g n > $Outfile_ECA_FASTA.nex";
+# Convert FASTA to Nexus
+my $fasta_to_nexus_CMD = "perl $Bin/FASTA-parser.pl -s $Outfile_ECA_FASTA -p nexus -d dna -g n > $Outfile_ECA_FASTA.nex";
 system($fasta_to_nexus_CMD);
-my $fasta_to_phylip_CMD = "java -cp /seq/annotation/bio_tools/readSeq/readseq.jar run -f 12 $Outfile_ECA_FASTA";
-system($fasta_to_phylip_CMD);
 
 sub tallies_from_VCF {
 	my ($all, $nr, $genome_length) = @_;
