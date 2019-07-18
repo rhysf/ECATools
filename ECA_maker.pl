@@ -290,7 +290,8 @@ sub save_ECA_bases {
 				$comparisons_hets{$VCF}{$supercontig}{$position} = $amb_char;
 			}
 			if($base_type =~ m/snp|reference/) { 	
-				die "What is this $consensus in $VCF $supercontig $position" if($consensus !~ m/A|T|C|G/i);
+				$consensus = substr $consensus, 0, 1;
+				die "What is this $consensus in $VCF $supercontig $position" if($consensus !~ m/[ATCG]/i);
 				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $consensus; 
 				$comparisons_snps{$VCF}{$supercontig}{$position} = $consensus;
 			}
