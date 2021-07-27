@@ -200,70 +200,90 @@ sub VCF_struct_determine_bases_and_base_type {
 		return ($base1, $base2, $base_type);
 	}
 
-	# Homozygous SNP
-	my $consensus = $bases[($$VCF_struct{$GT_id} - 1)]; # won't be defined for heterozygous positions
-	if((($$VCF_struct{$GT_id} ne 0) && ($$VCF_struct{$GT_id} !~ m/(\d)([\/\|])(\d)/)) && (length($$VCF_struct{'reference_VCF_format'}) eq length($consensus))) { 
+	# Not heterozygous
+	if(($$VCF_struct{$GT_id} ne 0) && ($$VCF_struct{$GT_id} !~ m/(\d)([\/\|])(\d)/)) {
+		my $consensus = $bases[($$VCF_struct{$GT_id} - 1)]; # won't be defined for heterozygous positions
+	
+		# Homozygous SNP
+		if(length($$VCF_struct{'reference_VCF_format'}) eq length($consensus)) { 
 
-		# A SNP
-		if((length($$VCF_struct{'reference_VCF_format'}) eq 1) && (length($consensus) eq 1)) { 
-			$base1 = $consensus;
-			$base_type = 'snp';
-			return ($base1, $base2, $base_type);
-		}
-
-		# SNP(s) disguised as an indel
-		if((length($$VCF_struct{'reference_VCF_format'}) eq length($consensus)) && ($consensus !~ m/\./)) {
-			my @bases_reference = split //, $$VCF_struct{'reference_VCF_format'};
-			my @bases_consensus = split //, $consensus;
-			my $snp_count = 0;
-			for(my $i=0; $i<scalar(@bases_reference); $i++) {
-				my $ref_base = $bases_reference[$i];
-				my $cons_base = $bases_consensus[$i];
-				if($ref_base ne $cons_base) { $snp_count++; }
-			}
-			if($snp_count ne 0) {
+			# A SNP
+			if((length($$VCF_struct{'reference_VCF_format'}) eq 1) && (length($consensus) eq 1)) { 
 				$base1 = $consensus;
-				$base_type = ('snp_multi' . $snp_count);
+				$base_type = 'snp';
 				return ($base1, $base2, $base_type);
 			}
-		}
-
-		# Ambiguous
-		warn "Nothing found for this apparant homozygous snp:\n";
-		warn Dumper($$VCF_struct);
-		$base1 = 'N';
-		$base_type = 'ambigious';
-		return ($base1, $base2, $base_type);
-	}
-
-	# Homozygous indel
-	if((($$VCF_struct{$GT_id} ne 0) && ($$VCF_struct{$GT_id} !~ m/(\d)([\/\|])(\d)/)) && (length($$VCF_struct{'reference_VCF_format'}) ne length($consensus))) {
-
-		# Deletion (maybe with snps in there too!)
-		if(length($$VCF_struct{'reference_VCF_format'}) > length($consensus)) { 
-			$base1 = $consensus;
-			$base_type = 'deletion';
+	
+			# SNP(s) disguised as an indel
+			if((length($$VCF_struct{'reference_VCF_format'}) eq length($consensus)) && ($consensus !~ m/\./)) {
+				my @bases_reference = split //, $$VCF_struct{'reference_VCF_format'};
+				my @bases_consensus = split //, $consensus;
+				my $snp_count = 0;
+				my ($ref_base_saved, $cons_base_saved);
+				for(my $i=0; $i<scalar(@bases_reference); $i++) {
+					my $ref_base = $bases_reference[$i];
+					my $cons_base = $bases_consensus[$i];
+					if($ref_base ne $cons_base) { 
+						$ref_base_saved = $ref_base;
+						$cons_base_saved = $cons_base;
+						$snp_count++; 
+					}
+				}
+				if($snp_count eq 0) {
+					$base1 = $$VCF_struct{'reference_VCF_format'};;
+					$base_type = 'reference';
+					return ($base1, $base2, $base_type);
+				}
+				elsif($snp_count eq 1) {
+					$base1 = $ref_base_saved;
+					$base2 = $cons_base_saved;
+					$base_type = 'snp';
+					return ($base1, $base2, $base_type);
+				}
+				if($snp_count > 1) {
+					$base1 = $consensus;
+					$base_type = ('snp_multi' . $snp_count);
+					return ($base1, $base2, $base_type);
+				}
+			}
+	
+			# Ambiguous
+			warn "Nothing found for this apparant homozygous snp:\n";
+			warn Dumper($VCF_struct);
+			$base1 = 'N';
+			$base_type = 'ambiguous';
 			return ($base1, $base2, $base_type);
 		}
-		if((length($$VCF_struct{'reference_VCF_format'}) eq length($consensus)) && ($consensus =~ m/^\./)) { 
-			$base1 = $consensus;
-			$base_type = 'deletion';
-			return ($base1, $base2, $base_type);
-		}	
 
-		# Insertion (maybe with snps in there too!)
-		if(length($$VCF_struct{'reference_VCF_format'}) < length($consensus)) { 
-			$base1 = $consensus;
-			$base_type = 'insertion';
+		# Homozygous indel
+		if(length($$VCF_struct{'reference_VCF_format'}) ne length($consensus)) {
+
+			# Deletion (maybe with snps in there too!)
+			if(length($$VCF_struct{'reference_VCF_format'}) > length($consensus)) { 
+				$base1 = $consensus;
+				$base_type = 'deletion';
+				return ($base1, $base2, $base_type);
+			}
+			if((length($$VCF_struct{'reference_VCF_format'}) eq length($consensus)) && ($consensus =~ m/^\./)) { 
+				$base1 = $consensus;
+				$base_type = 'deletion';
+				return ($base1, $base2, $base_type);
+			}	
+	
+			# Insertion (maybe with snps in there too!)
+			if(length($$VCF_struct{'reference_VCF_format'}) < length($consensus)) { 
+				$base1 = $consensus;
+				$base_type = 'insertion';
+				return ($base1, $base2, $base_type);
+			}
+			
+			# Ambiguous
+			warn "Nothing found for this apparent homozygous indel:\n";
+			warn Dumper($VCF_struct);
+			$base1 = 'N';
+			$base_type = 'ambiguous';
 			return ($base1, $base2, $base_type);
 		}
-		
-		# Ambiguous
-		warn "Nothing found for this apparent homozygous indel:\n";
-		warn Dumper($$VCF_struct);
-		$base1 = 'N';
-		$base_type = 'ambigious';
-		return ($base1, $base2, $base_type);
 	}
 
 	# Bi-allelic heterozygous positions & indels
@@ -271,19 +291,19 @@ sub VCF_struct_determine_bases_and_base_type {
 		$base_type = 'heterozygous';
 		my @bases_het;
 		if($$VCF_struct{'consensus_VCF_format'} =~ m/\,/) {
-			@bases = split /,/, $$VCF_struct{'consensus_VCF_format'};
+			@bases_het = split /,/, $$VCF_struct{'consensus_VCF_format'};
 			foreach(@bases) {
 				if(length($_) > length($$VCF_struct{'reference_VCF_format'})) { $base_type = 'het_insertion'; }
 				if(length($_) < length($$VCF_struct{'reference_VCF_format'})) { $base_type = 'het_deletion'; }
 			}
 		} else { 
-			push @bases, $$VCF_struct{'reference_VCF_format'};
-			push @bases, $$VCF_struct{'consensus_VCF_format'};
-			if(length($bases[1]) > length($bases[0])) { $base_type = 'het_insertion'; }
-			if(length($bases[1]) < length($bases[0])) { $base_type = 'het_deletion'; }
+			push @bases_het, $$VCF_struct{'reference_VCF_format'};
+			push @bases_het, $$VCF_struct{'consensus_VCF_format'};
+			if(length($bases_het[1]) > length($bases_het[0])) { $base_type = 'het_insertion'; }
+			if(length($bases_het[1]) < length($bases_het[0])) { $base_type = 'het_deletion'; }
 		}
-		$base1 = $bases[0];
-		$base2 = $bases[1];
+		$base1 = $bases_het[0];
+		$base2 = $bases_het[1];
 		return ($base1, $base2, $base_type);
 	}
 	#return ($base1, $base2, $base_type);
