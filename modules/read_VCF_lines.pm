@@ -94,8 +94,8 @@ sub read_VCF_lines {
 		if(!defined $VCF_info{$DP_id}) { $VCF_info{$DP_id} = '?'; }
 
 		# Check alleles are different
-		if($VCF_info{$GT_id} =~ m/\//) {
-			my @allele_parts = split /\//, $VCF_info{$GT_id};
+		if($VCF_info{$GT_id} =~ m/[\/\|]/) {
+			my @allele_parts = split /[\/\|]/, $VCF_info{$GT_id};
 			die "Have not coded for multiple alleles for $VCF_line in check alleles are different\n" if(scalar(@allele_parts) ne 2);
 			if($allele_parts[0] eq $allele_parts[1]) { 
 				$VCF_info{$GT_id} = $allele_parts[0]; 
