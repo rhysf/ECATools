@@ -30,7 +30,7 @@ if(!defined $opt_i) { $opt_i = 'y'; }
 
 # Output file suffix (onto VCFs)
 my ($filename, $dirs, $suffix) = fileparse($opt_v);
-my $settings = ("v-" . $filename . "-s-" . $opt_s);
+my $settings = ("-v-" . $filename . "-s-" . $opt_s);
 if($opt_e) { $settings .= ("-e-" . $opt_e); }
 if($opt_z) { $settings .= ("-z-" . $opt_z); }
 $settings .= ".vcf";
