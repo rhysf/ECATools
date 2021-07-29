@@ -85,6 +85,9 @@ foreach my $isolate(keys %{$Name_Type_Location_file}) {
 			if($opt_i =~ m/n/) {
 				my %bases_found;
 				foreach my $vcfs(keys %{$$verified_eca_positions_per_isolate{$contig}{$position}}) {
+					if(!defined $$verified_eca_positions_per_isolate{$contig}{$position}{$vcfs}) {
+						warn "ERROR: No invariant base saved for $contig $position $vcfs\n";
+					}
 					my $base_found = $$verified_eca_positions_per_isolate{$contig}{$position}{$vcfs};
 					$bases_found{$base_found}++;
 				}
