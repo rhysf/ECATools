@@ -201,7 +201,7 @@ sub VCF_struct_determine_bases_and_base_type {
 		die "VCF_struct_determine_bases_and_base_type: Error. No $GT_part defined from ref $ref_base and cons $cons_base\n" if(!defined $all_bases[$GT_part]);
 
 		# Ambiguous bases
-		if($all_bases[$GT_part] =~ m/[N\.]/) {
+		if($all_bases[$GT_part] =~ m/[N\.\*]/) {
 			$base1 = 'N';
 			$base_type = 'ambiguous';
 			return ($base1, $base2, $base_type);
