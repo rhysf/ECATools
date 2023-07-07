@@ -27,7 +27,8 @@ Optional: -r\tSteps to run [123]
           -o\tOutput directory [ECATools_output]\n
 Parallel: -g\tRun commands on the grid (y/n) [n]
           -p\tPlatform (UGER, LSF, GridEngine) [UGER]
-          -q\tQueue name [short]\n";
+          -q\tQueue name [short]\n
+Notes:    If running in parallel, need to complete steps 1 separately\n";
 our($opt_a, $opt_c, $opt_e, $opt_f, $opt_g, $opt_i, $opt_m, $opt_o, $opt_p, $opt_q, $opt_r, $opt_s, $opt_v, $opt_z);
 getopt('acefgimopqrsvz');
 die $usage unless ($opt_f && $opt_v);
@@ -72,6 +73,7 @@ if($opt_r =~ m/1/) {
 	my $settings = "-f $opt_f -s $opt_s -m $opt_m -e $opt_e -z $opt_z -o $opt_o";
 	my $outfile_parallel_commands = "$opt_o/vcf_to_variants_and_ref_sites.cmds";
 	&print_supercontig_tab_positions_from_VCF($Name_Type_Location_hash, $settings, $outfile_parallel_commands, $opt_p, $opt_q);
+	die "ECATools: Wait for step 1 to complete before running steps 2 and 3\n" if($opt_g eq 'y');
 }
 
 # Find and print ECA sites
