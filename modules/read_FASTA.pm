@@ -26,10 +26,12 @@ sub fasta_to_struct {
 		my $id = $seq_obj->id;
 		my $seq = $seq_obj->seq;
 		my $desc = $seq_obj->description;
+		my $length = length($seq);
 
 		# Save
 		$struct{'seq'}{$id} = $seq;
 		$struct{'desc'}{$id} = $desc;
+		$struct{'seq_length'}{$id} = $length;
 		push @{$struct{'order'}}, $id;
 	}
 	return \%struct;

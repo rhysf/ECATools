@@ -10,306 +10,239 @@ use read_Tab;
 ### rfarrer@broadinstitute.org
 
 # Opening commands 
-my $usage = "Usage: perl $0 -v <Name tab Type(VCF/PILEUP) tab Location>\n
-Optional: -s\tSettings [2]
-             \t\t1 = homozygous or heterozygous & ignore indels
-	     \t\t2 = homozygous only
-	     \t\t3 = all variants including indels (partly experimental)
+my $usage = "Usage: perl $0 -f <reference FASTA> -v <name_VCF_location file>\n
+Optional: -r\tSteps to run [123]
+            \t\t1 = Print VCF regions, according to settings
+            \t\t2 = Find and print ECA positions
+            \t\t3 = Print ECA FASTA and pairwise comparisons
+          -s\tSettings [1]
+            \t\t1 = homozygous only
+            \t\t2 = homozygous or heterozygous & ignore indels
+            \t\t3 = all variants (EXPERIMENTAL - MAY NOT WORK)
           -m\tMin read depth [4]
           -i\tInclude invariant sites (y/n) [n]
-          -g\tGenome length for warnings [] 
-	  -e\tExclude variants on contig/chromosome [N]
-          -z\tExclude variants not on contig/chromosome [N]
-	  -a\tExclude ambigious sites (y/n) [y]\n
-Notes: produces the following outfiles:
-          ECVA-positions-from-[settings].tab
-          ECVA-positions-from-[settings].fasta
-          ECVA-positions-from-[settings].pairwise\n";
-our($opt_v, $opt_s, $opt_c, $opt_m, $opt_i, $opt_g, $opt_e, $opt_z, $opt_a);
-getopt('vscmigeza');
-die $usage unless ($opt_v);
-if(!defined $opt_s) { $opt_s = 2; }
-if(!defined $opt_m) { $opt_m = 4; }
-if(!defined $opt_i) { $opt_i = 'n'; }
+          -e\tExclude variants on contig/chromosome (y/n) [n]
+          -z\tExclude variants not on contig/chromosome (y/n) [n]
+          -a\tExclude ambigious sites (y/n) [y]\n
+          -o\tOutput directory [ECATools_output]\n
+Parallel: -g\tRun commands on the grid (y/n) [n]
+          -p\tPlatform (UGER, LSF, GridEngine) [UGER]
+          -q\tQueue name [short]\n";
+our($opt_a, $opt_c, $opt_e, $opt_f, $opt_g, $opt_i, $opt_m, $opt_o, $opt_p, $opt_q, $opt_r, $opt_s, $opt_v, $opt_z);
+getopt('acefgimopqrsvz');
+die $usage unless ($opt_f && $opt_v);
 if(!defined $opt_a) { $opt_a = 'y'; }
-if(!defined $opt_e) { $opt_e = 'N'; }
-if(!defined $opt_z) { $opt_z = 'N'; }
-die "opt_s must be 1, 2 or 3" if(($opt_s ne 1) && ($opt_s ne 2) && ($opt_s ne 3));
+if(!defined $opt_e) { $opt_e = 'n'; }
+if(!defined $opt_i) { $opt_i = 'n'; }
+if(!defined $opt_m) { $opt_m = 4; }
+if(!defined $opt_o) { $opt_o = 'ECATools_output'; }
+if(!defined $opt_r) { $opt_r = '123'; }
+if(!defined $opt_s) { $opt_s = 1; }
+if(!defined $opt_z) { $opt_z = 'n'; }
+if(!defined $opt_g) { $opt_g = 'n'; }
+if(!defined $opt_p) { $opt_p = 'UGER'; }
+if(!defined $opt_q) { $opt_q = 'short'; }
+die "opt_s must be 1, 2 or 3" if($opt_s !~ m/[123]/);
 die "opt_i must equal n or y: $opt_i\n" if($opt_i !~ m/[ny]/i);
+warn "$0: -f $opt_f -v $opt_v -r $opt_r -s $opt_s -m $opt_m -i $opt_i -e $opt_e -z $opt_z -a $opt_a -o $opt_o -g $opt_g -p $opt_p -q $opt_q\n";
 
 # Output files
 my ($filename, $dirs, $suffix) = fileparse($opt_v);
-my $settings = ("v-" . $filename . "-m-" . $opt_m . "-s-" . $opt_s . "-i-" . $opt_i);
-if($opt_e) { $settings .= ("-e-" . $opt_e); }
-if($opt_z) { $settings .= ("-z-" . $opt_z); }
-my $Outfile_ECA_positions = 'EVCA-positions-from-' . $settings . '.tab';
-my $Outfile_ECA_FASTA = 'EVCA-positions-from-' . $settings . '.fasta';
-my $Outfile_ECA_pairwise = 'EVCA-positions-from-' . $settings . '.pairwise';
+my $outfile_settings = ("v-" . $filename . "-m-" . $opt_m . "-s-" . $opt_s . "-i-" . $opt_i);
+if($opt_e) { $outfile_settings .= ("-e-" . $opt_e); }
+if($opt_z) { $outfile_settings .= ("-z-" . $opt_z); }
+if(! -d $opt_o) { `mkdir $opt_o`; }
+my $outfile_ECA_positions = $opt_o . '/ECA-positions-from-' . $outfile_settings . '.tab';
+my $outfile_ECA_FASTA = $opt_o . '/ECA-positions-from-' . $outfile_settings . '.fasta';
+my $outfile_ECA_pairwise = $opt_o . '/ECA-positions-from-' . $outfile_settings . '.pairwise';
+
+# Dependencies
+my $vcf_to_variants_and_ref_sites = "$Bin/util/VCF_to_variants_and_ref_sites.pl";
+my $Run_Commands_python = "$Bin/util/Run_cmds_on_grid.py";
+foreach($vcf_to_variants_and_ref_sites, $Run_Commands_python) { die "Error: Dependency script $_ not found" if(! -e $_); }
 
 # Check input files
-my $Name_Type_Location_file = tabfile::save_columns_to_column_hash($opt_v, 0, 1, 2);
-die "No input specified with $opt_v: $!\n" if(!defined $Name_Type_Location_file);
-my $check1 = &Name_Type_Location_files_check_exist($Name_Type_Location_file);
+my $Name_Type_Location_hash = tabfile::save_columns_to_column_hash($opt_v, 0, 1, 2);
+die "No input specified with $opt_v: $!\n" if(!defined $Name_Type_Location_hash);
+my $check1 = &check_files_exist_in_Name_Type_Location_files($Name_Type_Location_hash);
+my $number_of_VCFs = scalar(keys(%{$Name_Type_Location_hash}));
 
-# Read each VCF and save almost all variants (ignore ambiguous and indels, and het when unwanted) and reference if invariants wanted
-warn "Get polymorphisms from VCFs...\n";
-my ($contig_tab_position_to_tally, $NR_count);
-($contig_tab_position_to_tally, $NR_count) = &ECA_save_supercontig_tab_positions_from_VCF($Name_Type_Location_file, $contig_tab_position_to_tally, $NR_count, $opt_s, $opt_e, $opt_z, $opt_m, '1st_pass');
+# Print VCF regions, according to settings
+if($opt_r =~ m/1/) {
+	my $settings = "-f $opt_f -s $opt_s -m $opt_m -e $opt_e -z $opt_z -o $opt_o";
+	my $outfile_parallel_commands = "$opt_o/vcf_to_variants_and_ref_sites.cmds";
+	&print_supercontig_tab_positions_from_VCF($Name_Type_Location_hash, $settings, $outfile_parallel_commands, $opt_p, $opt_q);
+}
 
-# Get reference bases from sites (that have at least 1 variant)
-warn "Get reference bases from sites that have at least 1 variant...\n"; 
-($contig_tab_position_to_tally, $NR_count) = &ECA_save_supercontig_tab_positions_from_VCF($Name_Type_Location_file, $contig_tab_position_to_tally, $NR_count, $opt_s, $opt_e, $opt_z, $opt_m, '2nd_pass');
+# Find and print ECA sites
+if($opt_r =~ m/2/) {
 
-# Count unique loci
-if(defined $opt_g) { my $count_at_unique_loci = &tallies_from_VCF($contig_tab_position_to_tally, $NR_count, $opt_g); }
+	# Save all variant sites
+	my $settings = "m-$opt_m-s-$opt_s-e-$opt_e-z-$opt_z";
+	my $variants_struct = &save_contig_position_to_number_VCFs_found("$opt_o/*$settings-variant-bases.tab");
 
-# Find verified positions 
-warn "Find ECA positions...\n";
-my ($verified_eca_positions) = &find_ECA_positions_from_contig_tab_position_to_tally($contig_tab_position_to_tally, scalar(keys(%{$Name_Type_Location_file})), $opt_e, $opt_z, $opt_i);
+	# Save all reference sites
+	my $reference_struct = &save_contig_position_to_number_VCFs_found("$opt_o/*$settings-reference-bases.tab");
 
-# Get all ECA homozygous positions (and possibly heterozygous positions with ambiguity characters) for FASTA and save these for pairwise comparisons
-if($opt_s eq 1) { warn "Saving ECA homozygous and heterzygous bases (with ambiguity characters)...\n"; }
-elsif($opt_s eq 2) { warn "Saving ECA homozygous bases...\n"; }
-my ($verified_eca_positions_per_isolate, $comparisons_snps, $comparisons_hets, $indel_lengths) = &save_ECA_bases($Name_Type_Location_file, $verified_eca_positions);
+	# Find ECA positions
+	my $verified_eca_positions = &find_and_print_ECA_positions($variants_struct, $reference_struct, $number_of_VCFs, $opt_i, $outfile_ECA_positions);
+}
 
-# Print FASTA file for each file and position in Tab in same order
-warn "Printing FASTA and Tab files...\n";
-my $isolate_number = 0;
-open my $ofh1, '>', $Outfile_ECA_positions or die "Cannot open $Outfile_ECA_positions: $!\n";
-open my $ofh2, '>', $Outfile_ECA_FASTA or die "Cannot open $Outfile_ECA_FASTA: $!\n";
-foreach my $isolate(keys %{$Name_Type_Location_file}) {
-	my $VCF = $$Name_Type_Location_file{$isolate}{'VCF'};
-	print $ofh2 ">$isolate\n";
-	foreach my $contig(sort keys %{$verified_eca_positions_per_isolate}) {
-		POSITIONS: foreach my $position(sort { $a <=> $b } keys %{$$verified_eca_positions_per_isolate{$contig}}) {
-			die "VCF $VCF defined, but no position saved at contig) $contig position) $position\n" if(!defined $$verified_eca_positions_per_isolate{$contig}{$position}{$VCF});
+# Print ECA sites
+if($opt_r =~ m/3/) {
 
-			#warn "$contig $position $base\n";
+	# Save ECA positions for FASTA and pairwise comparisons
+	my $verified_eca_positions = tabfile::save_columns_to_one_hash($outfile_ECA_positions, 0, 1);
+	my ($verified_eca_positions_per_isolate, $comparisons_snps, $comparisons_hets, $indel_lengths) = &save_ECA_bases($Name_Type_Location_hash, $verified_eca_positions, $opt_s);
 
-			# Max length for indels
-			my $max_length_insertion = $$indel_lengths{$contig}{$position}{'INS'};
-			my $max_length_deletion  = $$indel_lengths{$contig}{$position}{'DEL'};
+	# Print FASTA file for each file and position in Tab in same order
+	&print_fasta_for_ECA_sites($Name_Type_Location_hash, $verified_eca_positions_per_isolate, $indel_lengths, $opt_i, $outfile_ECA_FASTA);
 
-			# Invariant?
-			if(($opt_i =~ m/n/) && ($max_length_deletion eq 1)) {
-				my %bases_found;
-				foreach my $vcfs(keys %{$$verified_eca_positions_per_isolate{$contig}{$position}}) {
-					if(!defined $$verified_eca_positions_per_isolate{$contig}{$position}{$vcfs}) {
-						warn "ERROR: No invariant base saved for $contig $position $vcfs\n";
+	# Calculate pairwise comparisons
+	if($opt_i eq 'y') { 
+		&calculate_pairwise_differences($Name_Type_Location_hash, $comparisons_snps, 'SNPs', $outfile_ECA_pairwise);
+		
+		# heterozygous
+		if($opt_s =~ m/23/) {
+			&calculate_pairwise_differences($Name_Type_Location_hash, $comparisons_hets, 'heterozygous_positions', $outfile_ECA_pairwise);
+		}
+	}
+}
+
+### sub routines
+
+sub print_fasta_for_ECA_sites {
+	my ($Name_Type_Location_hash, $verified_eca_positions_per_isolate, $indel_lengths, $include_invariant_sites, $outfile_ECA_FASTA) = @_;
+
+	# Outfile
+	warn "print_fasta_for_ECA_sites: $outfile_ECA_FASTA\n";
+	open my $ofh, '>', $outfile_ECA_FASTA or die "Cannot open $outfile_ECA_FASTA: $!\n";
+
+	# Go through each isolate to print (sort keys for contig and sort { $a <=> $b } keys must be consistent with find_and_print_ECA_positions)
+	foreach my $isolate(keys %{$Name_Type_Location_hash}) {
+		my $VCF = $$Name_Type_Location_hash{$isolate}{'VCF'};
+
+		# header
+		print $ofh ">$isolate\n";
+
+		# save sequence
+		my $sequence = '';
+		foreach my $contig(sort keys %{$verified_eca_positions_per_isolate}) {
+			POSITIONS: foreach my $position(sort { $a <=> $b } keys %{$$verified_eca_positions_per_isolate{$contig}}) {
+				die "Error: No position saved for $contig pos. $position in $VCF\n" if(!defined $$verified_eca_positions_per_isolate{$contig}{$position}{$VCF});
+
+				# Base
+				my $base = $$verified_eca_positions_per_isolate{$contig}{$position}{$VCF};
+
+				# Add dashes to base if an insertion found
+				if(defined $$indel_lengths{$contig}{$position}{'INS'}) {
+					my $max_length_insertion = $$indel_lengths{$contig}{$position}{'INS'};
+
+					next if(length($base) >= $max_length_insertion);
+
+					for(my $i = length($base); $i < $max_length_insertion; $i++) {
+						$base .= '-';
 					}
-					my $base_found = $$verified_eca_positions_per_isolate{$contig}{$position}{$vcfs};
-					$bases_found{$base_found}++;
 				}
-				next POSITIONS if(scalar(keys(%bases_found)) < 2);
-			}
-			# End of new invariant check
 
-			# Base
-			my $base = $$verified_eca_positions_per_isolate{$contig}{$position}{$VCF};
-
-			# Add dashes to base if an insertion found
-			if(length($base) < $max_length_insertion) {
-				for(my $i = length($base); $i < $max_length_insertion; $i++) {
-					$base .= '-';
+				# Add deleted bases to base if a deletion found
+				if(defined $$indel_lengths{$contig}{$position}{'DEL'}) {
+					my $max_length_deletion  = $$indel_lengths{$contig}{$position}{'DEL'};
+					if(length($base) < $max_length_deletion) {
+						my $extra_base = $$indel_lengths{$contig}{$position}{'DEL_BASES'};
+						$base .= $extra_base;
+					}
 				}
+				
+				# save sequence
+				$sequence .= $base;
 			}
+		}
 
-			# Add deleted bases to base if a deletion found
-			if(length($base) < $max_length_deletion) {
-				my $extra_base = $$indel_lengths{$contig}{$position}{'DEL_BASES'};
-				$base .= $extra_base;
-			}
+		# print sequence
+		$sequence =~ s/(\S{60})/$1\n/g;
+		print $ofh "$sequence\n";
+	}
+	close $ofh;
+	return 1;
+}
 
-			# Print base location
-			if($isolate_number eq 0) { print $ofh1 "$contig\t$position\n"; }
+sub calculate_pairwise_differences {
+	my ($Name_Type_Location_hash, $comparisons_variants, $comparison_type, $outfile) = @_;
+
+	warn "calculate_pairwise_differences: $comparison_type to $outfile\n";
+
+	# outfile
+	open my $ofh, '>>', $outfile or die "Cannot open $outfile: $!\n";
+	print $ofh "file1\tfile2\tshared $comparison_type\tshared $comparison_type (\%)\n";
+
+	# go through pairwise VCF1 and VCF2 and find overlap
+	VCF1: foreach my $isolate(keys %{$Name_Type_Location_hash}) {
+		my $VCF1 = $$Name_Type_Location_hash{$isolate}{'VCF'};
+		VCF2: foreach my $isolate(keys %{$Name_Type_Location_hash}) {
+			my $VCF2 = $$Name_Type_Location_hash{$isolate}{'VCF'};
+			next VCF2 if ($VCF2 eq $VCF1);
 			
-			# Print base in FASTA
-			print $ofh2 $base;
-		}
-	}
-	print $ofh2 "\n";
-	$isolate_number = 1;
-}
-close $ofh1;
-close $ofh2;
+			my ($overlap_snps) = 0;
+			my ($total_snps_vcf1, $total_snps_vcf2) = (0, 0);
 
-# Calculate pairwise comparisons 
-warn "Calculate pairwise comparisons...\n";
-open my $ofh3, '>', $Outfile_ECA_pairwise or die "Cannot open $Outfile_ECA_pairwise: $!\n";
-VCF1: foreach my $isolate(keys %{$Name_Type_Location_file}) {
-	my $VCF1 = $$Name_Type_Location_file{$isolate}{'VCF'};
-	VCF2: foreach my $isolate(keys %{$Name_Type_Location_file}) {
-		my $VCF2 = $$Name_Type_Location_file{$isolate}{'VCF'};
-		next VCF2 if ($VCF2 eq $VCF1);
-		
-		my ($overlap_snps, $overlap_hets) = (0, 0);
-		my ($total_snps_vcf1, $total_snps_vcf2) = (0, 0);
-		my ($total_hets_vcf1, $total_hets_vcf2) = (0, 0);
+			# Overlap and total
+			foreach my $contig(keys %{$$comparisons_variants{$VCF1}}) {
+				$total_snps_vcf1 += scalar(keys(%{$$comparisons_variants{$VCF1}{$contig}}));
+				POS: foreach my $position(keys %{$$comparisons_variants{$VCF1}{$contig}}) {
+					my $vcf1_snp = $$comparisons_variants{$VCF1}{$contig}{$position};
+					next POS if(!defined $$comparisons_variants{$VCF2}{$contig}{$position});
+					my $vcf2_snp = $$comparisons_variants{$VCF2}{$contig}{$position};
 
-		# Overlap and total for snps
-		foreach my $contig(keys %{$$comparisons_snps{$VCF1}}) {
-			$total_snps_vcf1 += scalar(keys(%{$$comparisons_snps{$VCF1}{$contig}}));
-			foreach my $position(keys %{$$comparisons_snps{$VCF1}{$contig}}) {
-				my $snp = $$comparisons_snps{$VCF1}{$contig}{$position};
-				if((defined $$comparisons_snps{$VCF2}{$contig}{$position}) && ($$comparisons_snps{$VCF2}{$contig}{$position} eq $snp)) { $overlap_snps++; }
-			}
-		}
-		foreach my $contig(keys %{$$comparisons_snps{$VCF2}}) { $total_snps_vcf2 += scalar(keys(%{$$comparisons_snps{$VCF2}{$contig}})); }
-		my $percent_hom_shared = 0;
-		if(($total_snps_vcf1 + $total_snps_vcf2) ne 0) {
-			$percent_hom_shared = (($overlap_snps / (($total_snps_vcf1 + $total_snps_vcf2) / 2)) * 100);
-		}
-		
-		# Overlap and total for hets
-		if($opt_s eq 1) {
-			foreach my $contig(keys %{$$comparisons_hets{$VCF1}}) {
-				$total_hets_vcf1 += scalar(keys(%{$$comparisons_hets{$VCF1}{$contig}}));
-				foreach my $position(keys %{$$comparisons_hets{$VCF1}{$contig}}) {
-					my $het = $$comparisons_hets{$VCF1}{$contig}{$position};
-					if((defined $$comparisons_hets{$VCF2}{$contig}{$position}) && ($$comparisons_hets{$VCF2}{$contig}{$position} eq $het)) { $overlap_hets++; }
+					if($vcf1_snp eq $vcf2_snp) { $overlap_snps++; }
 				}
 			}
-			foreach my $contig(keys %{$$comparisons_hets{$VCF2}}) { $total_hets_vcf2 += scalar(keys(%{$$comparisons_hets{$VCF2}{$contig}})); }
-		
-			my $percent_het_shared = 0;
-			if(($total_hets_vcf1 + $total_hets_vcf2) ne 0) {
-				$percent_het_shared = (($overlap_hets / (($total_hets_vcf1 + $total_hets_vcf2) / 2)) * 100);
+			foreach my $contig(keys %{$$comparisons_variants{$VCF2}}) { $total_snps_vcf2 += scalar(keys(%{$$comparisons_variants{$VCF2}{$contig}})); }
+			my $percent_shared = 0;
+			if(($total_snps_vcf1 + $total_snps_vcf2) ne 0) {
+				$percent_shared = (($overlap_snps / (($total_snps_vcf1 + $total_snps_vcf2) / 2)) * 100);
 			}
-			print $ofh3 "$VCF1 - $VCF2 = $overlap_snps shared snps ($percent_hom_shared\%) and $overlap_hets shared hets ($percent_het_shared\%)\n";
+
+			print $ofh "$VCF1\t$VCF2\t$overlap_snps\t$percent_shared\n";
 		}
-		if($opt_s eq 2) { print $ofh3 "$VCF1 - $VCF2 = $overlap_snps shared snps ($percent_hom_shared\%)\n"; }	
+		print $ofh "\n";
 	}
-	print $ofh3 "\n";
-}
-close $ofh3;
-
-# Convert FASTA to Nexus
-my $fasta_to_nexus_CMD = "perl $Bin/FASTA-parser.pl -s $Outfile_ECA_FASTA -p nexus -d dna -g n > $Outfile_ECA_FASTA.nex";
-system($fasta_to_nexus_CMD);
-
-sub tallies_from_VCF {
-	my ($all, $nr, $genome_length) = @_;
-	warn "tallies_from_VCF...\n";
-	my ($sum, $count_at_unique_loci, $count_snp_at_unique_loci, $count_ref_at_unique_loci, $count_het_at_unique_loci) = (0, 0, 0, 0, 0);
-	$sum += $$nr{'all'};
-	$count_at_unique_loci += scalar(keys(%{$all}));
-	$count_snp_at_unique_loci += scalar(keys(%{$$nr{'snp'}}));
-	$count_ref_at_unique_loci += scalar(keys(%{$$nr{'reference'}}));
-	$count_het_at_unique_loci += scalar(keys(%{$$nr{'heterozygous'}}));
-		
-	my $snp_per_kb = (($count_snp_at_unique_loci / $genome_length) * 1000);
-	my $ref_per_kb = (($count_ref_at_unique_loci / $genome_length) * 1000);
-	my $het_per_kb = (($count_het_at_unique_loci / $genome_length) * 1000);
-	
-	warn "$sum total positions found in VCFs\n";
-	warn "$count_at_unique_loci / $sum at unique loci (non-redundant)\n";
-	warn "Unique loci (non-redundant; NR), and per Kb using genome length $genome_length nt:\n";
-	warn "$count_snp_at_unique_loci NR SNPs = $snp_per_kb/Kb\n";
-	warn "$count_ref_at_unique_loci NR REFs = $ref_per_kb/Kb\n";
-	warn "$count_het_at_unique_loci NR HETs = $het_per_kb/Kb\n";
-	return $count_at_unique_loci;
+	close $ofh;
+	return 1;
 }
 
-sub Name_Type_Location_files_check_exist {
+sub check_files_exist_in_Name_Type_Location_files {
 	my $Name_Type_Location_file = $_[0];
-	warn "Name_Type_Location_files_check_exist...\n";
+	warn "check_files_exist_in_Name_Type_Location_files...\n";
 	foreach my $isolate(keys %{$Name_Type_Location_file}) {
 		foreach my $file_type(keys %{$$Name_Type_Location_file{$isolate}}) {
 			my $file = $$Name_Type_Location_file{$isolate}{$file_type};
 			warn "Checking $file...\n";
-			open my $fh, '<', $file or die "Cannot open $file. Check Name_Type_Location file: $!\n";
-			close $fh;
+			if(! -e $file) { die "Cannot open $file. Check Name_Type_Location file: $!\n"; }
 		}
 	}
-	warn "Name_Type_Location_files_check_exist: Yes\n";
+	warn "check_files_exist_in_Name_Type_Location_files: Yes\n";
 	return 1;
 }
 
-sub ECA_save_supercontig_tab_positions_from_VCF {
-	my ($Name_Type_Location_file, $contig_tab_position_to_tally, $NR_count, $settings, $exclude, $include, $min_depth, $pass) = @_;
-
-	# Save positions
-	warn "ECA_save_supercontig_tab_positions_from_VCF (setting=$settings, exclude=$exclude, include=$include, min depth=$min_depth, pass=$pass)...\n";
-	foreach my $isolate(keys %{$Name_Type_Location_file}) {
-		my $VCF = $$Name_Type_Location_file{$isolate}{'VCF'};
-		my $depth_flag_count = 0;
-		warn "Opening and saving from $VCF...\n";
-		open my $fh, '<', $VCF or die "Cannot open $VCF: $!\n";
-		VCF: while(my $line=<$fh>) {
-			chomp $line;
-			my $VCF_line = vcflines::read_VCF_lines($line);
-			my $supercontig = $$VCF_line{'supercontig'};
-			my $position = $$VCF_line{'position'};
-			my $base_type = $$VCF_line{'base_type0'};
-
-			# Ignore ambigious, or contigs of uninterest
-			next VCF if($$VCF_line{'next'} eq 1);
-			next VCF if(($exclude ne 'N') && ($supercontig eq $exclude));
-			next VCF if(($include ne 'N') && ($supercontig ne $include));
-			my $sc_and_position = ($supercontig . "\t" . $position);
-
-			# Ignore heterozygous sites if setting 2 (only homozygous)
-			# Only keep HET/SNP on 1st pass
-			# Only keep REF on sites previously found on 2nd pass
-			next VCF if(($settings eq 2) && ($base_type eq 'heterozygous'));
-			next VCF if(($settings ne 3) && ($base_type =~ m/insertion|deletion/));
-			if($pass eq '1st_pass') {
-				next VCF if($base_type !~ m/heterozygous|snp|insertion|deletion/);
-				#next VCF if($base_type !~ m/heterozygous|snp/);
-			} else {
-				next VCF if($base_type !~ m/reference/);
-				# Ignore position not previously found
-				next VCF if(!defined $$contig_tab_position_to_tally{$sc_and_position}); 
-			}
-
-			# Min depth filtering
-			if((defined $$VCF_line{'DP0'}) && ($$VCF_line{'DP0'} ne '?'))  {
-				next if($$VCF_line{'DP0'} < $min_depth);
-			}
-			# Alert this wont be done max once per VCF
-			else {
-				if($depth_flag_count eq 0) {
-					$depth_flag_count = 1;
-					warn "Depth flag not identified in VCF. Ignoring -m\n";
-				}
-			}
-
-			# Save positions in hashes
-			$$contig_tab_position_to_tally{$sc_and_position}++;
-			$$NR_count{$base_type}{$sc_and_position}++;
-			$$NR_count{'all'}++;
-		}
-		close $fh;
-	}
-	return ($contig_tab_position_to_tally, $NR_count);
-}
-
-sub find_ECA_positions_from_contig_tab_position_to_tally {
-	my ($contig_tab_position_to_tally, $num_of_positions_found, $exclude, $include, $invariants) = @_;
-	my $count = 0;
-	my (%verified_eca_positions);
-	foreach my $lines(sort keys %{$contig_tab_position_to_tally}) {
-		my $count_found = $$contig_tab_position_to_tally{$lines};
-		if($count_found eq $num_of_positions_found) {
-			my @line_parts = split /\t/, $lines;
-			my ($contig, $pos) = @line_parts;
-			$verified_eca_positions{$contig}{$pos} = 1;
-			$count++;
-		}
-	}
-	warn "$count entirely covered in all (ECA) (inc. invariants = $invariants)\n";
-	if($exclude ne 'N') { warn "(over all but $exclude)\n"; }
-	if($include ne 'N') { warn "(over only $include)\n"; }
-	return \%verified_eca_positions;
-}
-
 sub save_ECA_bases {
-	my ($Name_Type_Location_file, $verified_eca_positions) = @_;
+	my ($Name_Type_Location_file, $verified_eca_positions, $settings) = @_;
 	my (%comparisons_snps, %comparisons_hets, %verified_eca_positions_per_isolate);
 	my %indel_lengths;
+
+	# warn message
+	if($settings eq 1) { warn "save_ECA_bases: Saving ECA homozygous bases...\n"; }
+	if($settings eq 2) { warn "save_ECA_bases: Saving ECA homozygous and heterzygous bases (with ambiguity characters)...\n"; }
+	if($settings eq 3) { warn "save_ECA_bases: Saving ECA homozygous, heterzygous bases (with ambiguity characters) and indels...\n"; }
+
 	foreach my $isolate(keys %{$Name_Type_Location_file}) {
 		my $VCF = $$Name_Type_Location_file{$isolate}{'VCF'};
-		warn "Saving nucleotides from $VCF...\n";
+		warn "save_ECA_bases: $VCF\n";
+
+		# sometimes 2 vcf lines for the same position are given (Pilon). Only consider the first one
+		my $last_contig_and_position;
+
+		# Run through VCF's extracting sequences for EXA bases
 		open my $fh, '<', $VCF or die "Cannot open $VCF: $!\n";
 		VCF: while(my $line=<$fh>) {
 			chomp $line;
@@ -321,39 +254,61 @@ sub save_ECA_bases {
 			my $base_type = $$VCF_line{'base_type0'};
 			my $amb_char = $$VCF_line{'amb_char0'};
 
-			# ignore if header
+			# Ignore if header
 			next VCF if($$VCF_line{'next'} eq 1);
 
-			# ignore if not an ECA position
+			# Ignore if not an ECA position
 			next VCF if(!defined $$verified_eca_positions{$supercontig}{$position});
-			
-			# length for indels
-			if(!defined $indel_lengths{$supercontig}{$position}{'INS'}) { $indel_lengths{$supercontig}{$position}{'INS'} = 1; }
-			if(!defined $indel_lengths{$supercontig}{$position}{'DEL'}) { $indel_lengths{$supercontig}{$position}{'DEL'} = 1; }
 
-			# Save nucleotides
-			if(($opt_s eq 1) && ($base_type eq 'heterozygous')) { 
-				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $amb_char; 
-				$comparisons_hets{$VCF}{$supercontig}{$position} = $amb_char;
+			# Ignore ambigious positions
+			next VCF if($base_type eq 'ambiguous');
 
+			# Ignore lines given twice
+			if(!defined $last_contig_and_position) { $last_contig_and_position = "$supercontig\t$position"; }
+			else {
+				my $current_contig_and_position = "$supercontig\t$position";
+				if($current_contig_and_position eq $last_contig_and_position) {
+					$last_contig_and_position = $current_contig_and_position;
+					next VCF;
+				}
+				$last_contig_and_position = $current_contig_and_position;
 			}
-			elsif($base_type =~ m/snp|reference/) { 
+
+			# Save consensus sequences
+
+			# homozygous
+			if(($base_type eq 'snp') || ($base_type eq 'reference')) {
 				$consensus = substr $consensus, 0, 1;
 				die "ERROR: unexpected base found in $VCF $supercontig $position: $consensus\n" if($consensus !~ m/[ATCG]/i);
 				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $consensus; 
 				$comparisons_snps{$VCF}{$supercontig}{$position} = $consensus;
 			}
+
+			# heterozygous
+			elsif(($settings =~ m/[23]/) && ($base_type eq 'heterozygous')) { 
+				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $amb_char; 
+				$comparisons_hets{$VCF}{$supercontig}{$position} = $amb_char;
+			}
+
+			# insertion
 			elsif($base_type =~ m/insertion/) {
+
+				warn "insertion?\n";
 
 				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $consensus; 
 				$comparisons_snps{$VCF}{$supercontig}{$position} = $consensus;
 
 				# Longest insertion
 				my $length = length($consensus);
+				if(!defined $indel_lengths{$supercontig}{$position}{'INS'}) { $indel_lengths{$supercontig}{$position}{'INS'} = 1; }
 				if($length > $indel_lengths{$supercontig}{$position}{'INS'}) { $indel_lengths{$supercontig}{$position}{'INS'} = $length; }
 			}
+
+			# deletion
 			elsif($base_type =~ m/deletion/) {
-				
+
+				warn "deletion?\n";
+
 				# how many dashes to add?
 				my $dashes = '';
 				for(my $i=0; $i < (length($ref_base) - length($consensus)); $i++) { $dashes .= '-'; }
@@ -364,6 +319,7 @@ sub save_ECA_bases {
 
 				# Longest deletion
 				my $length = (length($ref_base) - length($consensus)) + 1;
+				if(!defined $indel_lengths{$supercontig}{$position}{'DEL'}) { $indel_lengths{$supercontig}{$position}{'DEL'} = 1; }
 				if($length > $indel_lengths{$supercontig}{$position}{'DEL'}) { 
 					$indel_lengths{$supercontig}{$position}{'DEL'} = $length; 
 					my $del_base = substr $ref_base, length($consensus), length($ref_base);
@@ -371,10 +327,114 @@ sub save_ECA_bases {
 				}
 			}
 			else {
-				warn "WARNING: base found unaccounted for in $VCF $supercontig $position: $base_type\n";
+				die "ERROR: base unaccounted for: $VCF : $line ($base_type)\n";
 			}
 		}
 		close $fh;
 	}
 	return (\%verified_eca_positions_per_isolate, \%comparisons_snps, \%comparisons_hets, \%indel_lengths);
+}
+
+sub find_and_print_ECA_positions {
+	my ($contig_position_to_number_VCFs_variants, $contig_position_to_number_VCFs_reference, $number_of_vcfs, $include_invariants, $outfile) = @_;
+
+	# outfile
+	open my $ofh, '>', $outfile or die "Cannot open $outfile: $!";
+
+	warn "find_and_print_ECA_positions: $number_of_vcfs, $outfile...\n";
+	my $count = 0;
+	my $exclude_invariants = 0;
+	my (%verified_eca_positions);
+	foreach my $contig(sort keys %{$contig_position_to_number_VCFs_variants}) {
+		POSITION: foreach my $position(sort { $a <=> $b } keys %{$$contig_position_to_number_VCFs_variants{$contig}}) {
+
+			# variants found (>= 1)
+			my $variants_found = $$contig_position_to_number_VCFs_variants{$contig}{$position};
+
+			# ref bases found
+			my $ref_found = 0;
+			if(defined $$contig_position_to_number_VCFs_reference{$contig}{$position}) {
+				$ref_found += $$contig_position_to_number_VCFs_reference{$contig}{$position};
+			} 
+
+			# invariants
+			else {
+				if($include_invariants eq 'n') {
+					$exclude_invariants++;
+					next POSITION;
+				}
+			}
+
+			# ECA?
+			if(($variants_found + $ref_found) eq $number_of_vcfs) {
+				$count++;
+
+				# Print base location
+				#print $ofh "$contig\t$position\t$ref_found\t$variants_found\n";
+				print $ofh "$contig\t$position\n";
+			}
+		}
+	}
+	close $ofh;
+	if($include_invariants eq 'n') { warn "find_and_print_ECA_positions: $exclude_invariants invariants excluded\n"; }
+	warn "find_and_print_ECA_positions: $count entirely covered in all (ECA)\n";
+	return \%verified_eca_positions;
+}
+
+sub save_contig_position_to_number_VCFs_found {
+	my ($find_files) = $_[0];
+	my @variant_files = <"$find_files">;
+	
+	my %contig_position_to_number_VCFs;
+	foreach my $file(@variant_files) {
+		warn "save_contig_position_to_number_VCFs_found: saving $file...\n";
+		
+		open my $fh, '<', $file or die "Cannot open $file : $!";
+		my $contig;
+		POSITION: while(my $line = <$fh>) {
+			chomp $line;
+			if($line =~ m/^##/) {
+				$line =~ s/^##//;
+				$contig = $line;
+				next POSITION;
+			}
+
+			# positions
+			my @bits = split /\t/, $line;
+			my ($start, $stop) = @bits;
+			for(my $i = $start; $i < $stop; $i++) {
+				$contig_position_to_number_VCFs{$contig}{$i}++;
+			}
+		}
+	}
+	return \%contig_position_to_number_VCFs;
+}
+
+sub print_supercontig_tab_positions_from_VCF {
+	my ($Name_Type_Location_hash, $settings, $cmds_outfile, $platform, $queue) = @_;
+
+	my @cmds;
+	foreach my $isolate(keys %{$Name_Type_Location_hash}) {
+		my $VCF = $$Name_Type_Location_hash{$isolate}{'VCF'};
+		my $cmd = "perl $vcf_to_variants_and_ref_sites -v $VCF $settings";
+
+		# run on grid?
+		if($opt_g eq 'n') { system($cmd); }
+		else {
+			push @cmds, $cmd;
+		}
+	}
+	# Run paralel cmds:
+	if($opt_g ne 'n') { &run_cmds_on_grid(\@cmds, $cmds_outfile, $platform, $queue); }
+	return 1;
+}
+
+sub run_cmds_on_grid {
+	my ($cmds, $cmds_file, $platform, $queue) = @_;
+	open my $ofh, '>', $cmds_file or die "Cannot open $cmds_file : $!\n";
+	print $ofh @{$cmds};
+	close $ofh;
+	warn "Running commands in parallel...\n";
+	my $cmd_parallel = "$Run_Commands_python --platform $platform --queue $queue --mem 2 --throttle_nodes 95 --cmds_per_node 10 $cmds_file 2>&1 | tee $cmds_file.log";
+	process_cmd($cmd_parallel);	
 }

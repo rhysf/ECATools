@@ -1,0 +1,28 @@
+All documentation for ECATools can be found at:
+
+https://github.com/rhysf/ECATools
+
+Entirely Covered in All (ECA) Tools is a pipeline for extracting phylogenetically
+informative sites from several VCFs. 
+
+Prerequisites:
+--------------
+
+Perl
+Bio-Perl
+Python
+
+Getting started / example pipeline:
+-----------------------------------
+
+git clone https://github.com/rhysf/ECATools.git
+cd ECATools/examples/
+gunzip *.gz
+perl ../ECA_maker.pl -v Name_Type_location.tab -f Cryp_gatt_R265.genome.fa-scaffold3.14.fasta -r 123 -i y -s 1 
+perl ../ECA_maker.pl -v Name_Type_location.tab -f Cryp_gatt_R265.genome.fa-scaffold3.14.fasta -r 123 -i y -s 2
+
+Individual script details:
+--------------------------
+
+ECA-maker.pl
+ECA_pull_VCF_positions.pl
