@@ -30,9 +30,10 @@ if(!defined $opt_o) { $opt_o = 'ECATools_output'; }
 
 # outfile
 if(! -d $opt_o) { `mkdir $opt_o`; }
+my($filename, $dirs, $suffix) = fileparse($opt_v);
 my $settings = "m-$opt_m-s-$opt_s-e-$opt_e-z-$opt_z";
-my $outfile1 = "$opt_o/$opt_v-$settings-reference-bases.tab";
-my $outfile2 = "$opt_o/$opt_v-$settings-variant-bases.tab";
+my $outfile1 = "$opt_o/$filename-$settings-reference-bases.tab";
+my $outfile2 = "$opt_o/$filename-$settings-variant-bases.tab";
 
 # Save sequences
 my $fasta = fastafile::fasta_to_struct($opt_f);
