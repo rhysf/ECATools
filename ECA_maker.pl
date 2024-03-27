@@ -18,7 +18,7 @@ Optional: -r\tSteps to run [123]
           -s\tSettings [1]
             \t\t1 = homozygous only
             \t\t2 = homozygous or heterozygous & ignore indels
-            \t\t3 = all variants (EXPERIMENTAL - MAY NOT WORK)
+            \t\t3 = all variants (including indels)
           -m\tMin read depth [4]
           -i\tInclude invariant sites (y/n) [n]
           -e\tExclude variants on contig/chromosome (y/n) [n]
@@ -294,9 +294,6 @@ sub save_ECA_bases {
 
 			# insertion
 			elsif($base_type =~ m/insertion/) {
-
-				warn "insertion?\n";
-
 				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $consensus; 
 				$comparisons_snps{$VCF}{$supercontig}{$position} = $consensus;
 
@@ -308,8 +305,6 @@ sub save_ECA_bases {
 
 			# deletion
 			elsif($base_type =~ m/deletion/) {
-
-				warn "deletion?\n";
 
 				# how many dashes to add?
 				my $dashes = '';

@@ -1,6 +1,5 @@
 package fastafile;
 use strict;
-use Bio::SeqIO;
 use Exporter;
 use Encode;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
@@ -12,6 +11,7 @@ $VERSION = 0.1;
 use FindBin qw($Bin);
 use lib "$Bin";
 use read_Tab;
+use Bio::SeqIO;
 use Data::Dumper;
 
 ### rfarrer@broadinstitute.org
