@@ -284,16 +284,21 @@ sub save_ECA_bases {
 				die "ERROR: unexpected base found in $VCF $supercontig $position: $consensus\n" if($consensus !~ m/[ATCG]/i);
 				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $consensus; 
 				$comparisons_snps{$VCF}{$supercontig}{$position} = $consensus;
+				next VCF;
 			}
 
 			# heterozygous
-			elsif(($settings =~ m/[23]/) && ($base_type eq 'heterozygous')) { 
-				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $amb_char; 
-				$comparisons_hets{$VCF}{$supercontig}{$position} = $amb_char;
+			if ($base_type eq 'heterozygous') { 
+				if($settings =~ m/[23]/) {
+					$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $amb_char; 
+					$comparisons_hets{$VCF}{$supercontig}{$position} = $amb_char;
+				}
+				next VCF;
 			}
 
 			# insertion
-			elsif($base_type =~ m/insertion/) {
+			next VCF if($settings !~ m/3/);
+			if($base_type =~ m/insertion/) {
 				$verified_eca_positions_per_isolate{$supercontig}{$position}{$VCF} = $consensus; 
 				$comparisons_snps{$VCF}{$supercontig}{$position} = $consensus;
 
@@ -301,10 +306,11 @@ sub save_ECA_bases {
 				my $length = length($consensus);
 				if(!defined $indel_lengths{$supercontig}{$position}{'INS'}) { $indel_lengths{$supercontig}{$position}{'INS'} = 1; }
 				if($length > $indel_lengths{$supercontig}{$position}{'INS'}) { $indel_lengths{$supercontig}{$position}{'INS'} = $length; }
+				next VCF;
 			}
 
 			# deletion
-			elsif($base_type =~ m/deletion/) {
+			if($base_type =~ m/deletion/) {
 
 				# how many dashes to add?
 				my $dashes = '';
@@ -322,10 +328,9 @@ sub save_ECA_bases {
 					my $del_base = substr $ref_base, length($consensus), length($ref_base);
 					$indel_lengths{$supercontig}{$position}{'DEL_BASES'} = $del_base; 
 				}
+				next VCF;
 			}
-			else {
-				die "ERROR: base unaccounted for: $VCF : $line ($base_type)\n";
-			}
+			die "ERROR: base unaccounted for: $VCF : $line ($base_type)\n";
 		}
 		close $fh;
 	}
